@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "av_srt_generation"
+version = "0.0.0"
+description = "Resumable CLI pipeline to generate Japanese + zh-Hant subtitles (.srt) from a local video."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Arthur" }]
+dependencies = []
+
+[project.scripts]
+av_srt_generation = "av_srt_generation.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
