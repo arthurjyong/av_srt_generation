@@ -1,4 +1,3 @@
-````md
 # av_srt_generation
 
 Resumable CLI pipeline to generate Japanese + Traditional Chinese subtitles (`.srt`) from a local video.
@@ -33,7 +32,7 @@ source .venv/bin/activate  # macOS/Linux
 # install (editable)
 pip install -U pip
 pip install -e .
-````
+```
 
 ## Usage
 
@@ -106,9 +105,3 @@ Planned / typical dependencies:
 ## License
 
 See `LICENSE`.
-
-```
-
-If you want to be extra safe, after pasting, just confirm on GitHub preview that the “Quick start” code block ends properly (it will, with this version).
-::contentReference[oaicite:0]{index=0}
-```
