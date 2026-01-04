@@ -20,8 +20,9 @@ def main(argv: list[str] | None = None) -> int:
     ctx = init_workspace(args.video_path)
 
     print(f"Workspace directory: {ctx.work_dir}")
-    print(f"- media metadata: {ctx.media_json_path}")
-    print(f"- run log: {ctx.run_log_path}")
+    print("Artifacts:")
+    print(f"  - media metadata: {ctx.media_json_path}")
+    print(f"  - run log: {ctx.run_log_path}")
     print("Next step: extract audio to audio.wav (not yet implemented).")
     return 0
 
