@@ -9,6 +9,12 @@ from typing import Any, Tuple
 from av_srt_generation.io.json_io import read_json, write_json
 
 
+def _log(run_log_path: Path, message: str) -> None:
+    timestamp = _dt.datetime.utcnow().isoformat() + "Z"
+    with run_log_path.open("a", encoding="utf-8") as log_file:
+        log_file.write(f"[{timestamp}] {message}\n")
+
+
 @dataclass
 class WorkspaceContext:
     input_path: Path
@@ -81,14 +87,14 @@ def init_workspace(video_path: str | Path) -> WorkspaceContext:
     work_dir, _ = _select_work_dir(base_work_dir, fingerprint, input_path)
     work_dir.mkdir(parents=True, exist_ok=True)
 
+    run_log_path = work_dir / "run.log"
+    _log(run_log_path, f"init_workspace: start ({input_path})")
+
     media_metadata = _build_media_metadata(input_path, work_dir, fingerprint)
     media_json_path = work_dir / "media.json"
     write_json(media_json_path, media_metadata)
 
-    run_log_path = work_dir / "run.log"
-    log_line = f"[{_dt.datetime.utcnow().isoformat()}Z] init_workspace({input_path})\n"
-    with run_log_path.open("a", encoding="utf-8") as log_file:
-        log_file.write(log_line)
+    _log(run_log_path, f"init_workspace: ok -> {media_json_path.name}")
 
     return WorkspaceContext(
         input_path=input_path,

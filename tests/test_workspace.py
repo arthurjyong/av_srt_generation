@@ -42,7 +42,7 @@ def test_reuse_existing_workspace_with_matching_metadata(tmp_path: Path) -> None
     assert (first_ctx.work_dir / "media.json").is_file()
 
     log_text = second_ctx.run_log_path.read_text(encoding="utf-8")
-    assert log_text.count("init_workspace") == 2
+    assert log_text.count("init_workspace") == 4
 
 
 def test_new_suffix_workspace_when_file_changes(tmp_path: Path) -> None:

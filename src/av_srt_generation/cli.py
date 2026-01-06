@@ -4,6 +4,7 @@ import argparse
 
 from av_srt_generation.pipeline.workspace import init_workspace
 from av_srt_generation.pipeline.audio import extract_audio
+from av_srt_generation.pipeline.vad import vad_segment
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,13 +21,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     ctx = init_workspace(args.video_path)
     audio_path = extract_audio(ctx)
+    vad_path = vad_segment(ctx)
 
     print(f"Workspace directory: {ctx.work_dir}")
     print("Artifacts:")
     print(f"  - media metadata: {ctx.media_json_path}")
     print(f"  - run log: {ctx.run_log_path}")
     print(f"  - audio: {audio_path}")
-    print("Next step: VAD not implemented yet.")
+    print(f"  - VAD segments: {vad_path}")
     return 0
 
 
