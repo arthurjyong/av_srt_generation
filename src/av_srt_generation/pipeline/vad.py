@@ -61,6 +61,14 @@ def _validate_cached_segments(path: Path) -> bool:
     return True
 
 
+def _get_silero_get_speech_timestamps(utils: object):
+    if isinstance(utils, dict):
+        return utils.get("get_speech_timestamps")
+    if isinstance(utils, (list, tuple)):
+        return utils[0] if utils else None
+    return None
+
+
 def _run_silero_vad(audio_bytes: bytes, sample_rate: int, channels: int) -> List[Tuple[int, int]]:
     try:  # pragma: no cover - optional dependency
         import torch
@@ -77,7 +85,7 @@ def _run_silero_vad(audio_bytes: bytes, sample_rate: int, channels: int) -> List
     except Exception as exc:  # pragma: no cover - optional dependency
         raise RuntimeError(_MISSING_DEPENDENCY_ERROR) from exc
 
-    get_speech_timestamps = utils.get("get_speech_timestamps")
+    get_speech_timestamps = _get_silero_get_speech_timestamps(utils)
     if get_speech_timestamps is None:  # pragma: no cover - optional dependency
         raise RuntimeError(
             "Silero VAD utilities missing get_speech_timestamps. Update silero package."

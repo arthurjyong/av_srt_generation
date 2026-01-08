@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from av_srt_generation.pipeline.vad import (
+    _get_silero_get_speech_timestamps,
     _normalize_segments,
     _validate_cached_segments,
     vad_segment,
@@ -145,3 +146,13 @@ def test_vad_segment_errors_when_dependencies_missing(
     assert "optional dependencies" in message
     assert "pip install torch silero-vad" in message
     assert "rerun" in message
+
+
+def test_get_silero_get_speech_timestamps_accepts_dict_or_tuple() -> None:
+    def marker():
+        return "ok"
+
+    assert _get_silero_get_speech_timestamps({"get_speech_timestamps": marker}) is marker
+    assert _get_silero_get_speech_timestamps((marker,)) is marker
+    assert _get_silero_get_speech_timestamps([marker]) is marker
+    assert _get_silero_get_speech_timestamps({}) is None
