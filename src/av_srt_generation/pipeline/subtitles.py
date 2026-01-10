@@ -202,10 +202,13 @@ def _load_gated_segments(path: Path) -> List[Segment]:
     return segments
 
 
-def _input_fingerprint(segments_path: Path, meta_path: Path) -> str:
-    if meta_path.exists():
-        return _sha256_path(meta_path)
-    return _sha256_path(segments_path)
+def _stage6_input_fingerprint(
+    gated_json_sha256: str, gated_meta_sha256: str
+) -> str:
+    payload = f"gated_json={gated_json_sha256};gated_meta={gated_meta_sha256}".encode(
+        "utf-8"
+    )
+    return _sha256_bytes(payload)
 
 
 def _block_duration(block: Block) -> int:
@@ -452,7 +455,13 @@ def build_subtitle_blocks_ja(
         _log(ctx, "stage6: missing segments.gated.json")
         raise FileNotFoundError(f"segments.gated.json not found in {ctx.work_dir}")
 
-    input_fingerprint = _input_fingerprint(segments_path, segments_meta_path)
+    gated_json_sha256 = _sha256_path(segments_path)
+    gated_meta_sha256 = (
+        _sha256_path(segments_meta_path) if segments_meta_path.exists() else ""
+    )
+    input_fingerprint = _stage6_input_fingerprint(
+        gated_json_sha256, gated_meta_sha256
+    )
     if blocks_path.exists() and meta_path.exists():
         try:
             cached_meta = read_json(meta_path)
@@ -499,6 +508,8 @@ def build_subtitle_blocks_ja(
         "stage": "stage6",
         "version": 1,
         "input_fingerprint": input_fingerprint,
+        "gated_json_sha256": gated_json_sha256,
+        "gated_meta_sha256": gated_meta_sha256,
         "stage6_config": _stage6_config_payload(stage6_config),
         "blocks_sha256": blocks_sha256,
     }

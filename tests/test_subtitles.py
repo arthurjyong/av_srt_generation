@@ -340,3 +340,34 @@ def test_stage8_cache_invalidates_on_upstream_meta_change(tmp_path: Path) -> Non
     write_srt_ja(ctx)
     second_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
     assert second_meta["upstream_meta_sha256"] != first_upstream
+
+
+def test_stage6_reruns_when_gated_json_changes(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    gated_path = ctx.work_dir / "segments.gated.json"
+    gated_meta_path = ctx.work_dir / "segments.gated.meta.json"
+    segments = [
+        {"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "ああ"},
+        {"seg_id": 1, "start_ms": 1100, "end_ms": 2000, "text": "いい"},
+    ]
+    gated_path.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
+    gated_meta_path.write_text("{\"meta\": \"stable\"}\n", encoding="utf-8")
+
+    blocks_path = build_subtitle_blocks_ja(ctx)
+    first_meta = json.loads(
+        (ctx.work_dir / "subtitle_blocks_ja.meta.json").read_text(encoding="utf-8")
+    )
+
+    segments[1]["text"] = "うう"
+    gated_path.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
+
+    build_subtitle_blocks_ja(ctx)
+    second_meta = json.loads(
+        (ctx.work_dir / "subtitle_blocks_ja.meta.json").read_text(encoding="utf-8")
+    )
+
+    assert first_meta["input_fingerprint"] != second_meta["input_fingerprint"]
+    assert blocks_path.read_text(encoding="utf-8") != ""
