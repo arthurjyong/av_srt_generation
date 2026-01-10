@@ -679,11 +679,13 @@ def write_srt_ja(
     normalized_sha = _sha256_path(blocks_path)
     stage6_config = _resolve_stage6_config(config, meta_path)
     stage8_config_payload = _stage6_config_payload(stage6_config)
+    upstream_meta_sha256 = ""
     stage6_input_fingerprint = ""
     stage6_config_sha = _canonical_json_sha({})
     normalization_version = 0
     if meta_path.exists():
         try:
+            upstream_meta_sha256 = _sha256_path(meta_path)
             blocks_meta = read_json(meta_path)
         except Exception:
             blocks_meta = None
@@ -702,6 +704,7 @@ def write_srt_ja(
             and cached_meta.get("version") == 1
             and cached_meta.get("normalized_blocks_sha256") == normalized_sha
             and cached_meta.get("wrap_config") == stage8_config_payload
+            and cached_meta.get("upstream_meta_sha256") == upstream_meta_sha256
             and cached_meta.get("stage6_input_fingerprint") == stage6_input_fingerprint
             and cached_meta.get("stage6_config_sha") == stage6_config_sha
             and cached_meta.get("normalization_version") == normalization_version
@@ -729,6 +732,8 @@ def write_srt_ja(
         "version": 1,
         "normalized_blocks_sha256": normalized_sha,
         "wrap_config": stage8_config_payload,
+        "upstream_meta_sha256": upstream_meta_sha256,
+        "upstream_meta_path": str(meta_path),
         "stage6_input_fingerprint": stage6_input_fingerprint,
         "stage6_config_sha": stage6_config_sha,
         "normalization_version": normalization_version,

@@ -296,3 +296,47 @@ def test_stage8_cache_invalidates_on_stage6_meta_change(tmp_path: Path) -> None:
     second_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
     assert srt_path_again == srt_path
     assert second_meta["stage6_input_fingerprint"] == "B"
+
+
+def test_stage8_cache_invalidates_on_upstream_meta_change(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    blocks_path = ctx.work_dir / "subtitle_blocks_ja.json"
+    meta_path = ctx.work_dir / "subtitle_blocks_ja.meta.json"
+    text = "あああ"
+    blocks = [{"block_id": 1, "start_ms": 0, "end_ms": 2000, "text": text}]
+    blocks_path.write_text(json.dumps(blocks, ensure_ascii=False), encoding="utf-8")
+    normalized_sha = hashlib.sha256(blocks_path.read_bytes()).hexdigest()
+    stage6_config = Stage6Config()
+    meta = {
+        "stage": "stage6",
+        "version": 1,
+        "input_fingerprint": "A",
+        "stage6_config": {
+            "merge_gap_ms": stage6_config.merge_gap_ms,
+            "max_block_ms": stage6_config.max_block_ms,
+            "min_block_ms": stage6_config.min_block_ms,
+            "max_lines": stage6_config.max_lines,
+            "chars_per_line": stage6_config.chars_per_line,
+            "target_chars_per_sec": stage6_config.target_chars_per_sec,
+            "max_chars_per_block": stage6_config.max_chars_per_block,
+        },
+        "normalized": True,
+        "normalization_version": 1,
+        "normalized_blocks_sha256": normalized_sha,
+    }
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    write_srt_ja(ctx)
+    srt_meta_path = ctx.work_dir / "write_srt_ja.meta.json"
+    first_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
+    first_upstream = first_meta["upstream_meta_sha256"]
+
+    meta["new_field"] = "x"
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    write_srt_ja(ctx)
+    second_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
+    assert second_meta["upstream_meta_sha256"] != first_upstream
