@@ -8,6 +8,7 @@ from av_srt_generation.pipeline.subtitles import (
     build_subtitle_blocks_ja,
     format_timestamp,
     normalize_japanese_text,
+    normalize_subtitle_blocks_ja,
     write_srt_ja,
     wrap_japanese,
 )
@@ -133,3 +134,83 @@ def test_stage8_unsplittable_block_forces_wrap(tmp_path: Path) -> None:
         if line and "-->" not in line and not line.isdigit()
     ]
     assert len(entry_lines) == 2
+
+
+def test_stage6_cache_hit_after_normalize(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    gated_path = ctx.work_dir / "segments.gated.json"
+    segments = [
+        {"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "テスト,"},
+        {"seg_id": 1, "start_ms": 1100, "end_ms": 2200, "text": "いいい"},
+    ]
+    gated_path.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
+
+    blocks_path = build_subtitle_blocks_ja(ctx)
+    first_bytes = blocks_path.read_bytes()
+    normalize_subtitle_blocks_ja(ctx)
+    second_bytes = blocks_path.read_bytes()
+    assert first_bytes != second_bytes
+
+    first_mtime = blocks_path.stat().st_mtime_ns
+    blocks_path_again = build_subtitle_blocks_ja(ctx)
+    second_mtime = blocks_path_again.stat().st_mtime_ns
+    assert first_mtime == second_mtime
+    log_text = ctx.run_log_path.read_text(encoding="utf-8")
+    assert "stage6: skip (cache hit)" in log_text
+
+
+def test_stage6_merges_short_block(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    segments = [
+        {"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "ああ"},
+        {"seg_id": 1, "start_ms": 1100, "end_ms": 1300, "text": "いい"},
+        {"seg_id": 2, "start_ms": 1400, "end_ms": 2500, "text": "うう"},
+    ]
+    gated_path = ctx.work_dir / "segments.gated.json"
+    gated_path.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
+
+    config = Stage6Config(
+        merge_gap_ms=50,
+        min_block_ms=800,
+        max_block_ms=4000,
+        max_lines=2,
+        chars_per_line=10,
+        target_chars_per_sec=50.0,
+    )
+    blocks_path = build_subtitle_blocks_ja(ctx, config=config)
+    blocks = json.loads(blocks_path.read_text(encoding="utf-8"))
+    durations = [item["end_ms"] - item["start_ms"] for item in blocks]
+    assert all(duration >= 800 for duration in durations)
+
+
+def test_stage6_keeps_unmergeable_short_block(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    segments = [
+        {"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "ああ"},
+        {"seg_id": 1, "start_ms": 1100, "end_ms": 1300, "text": "いい"},
+        {"seg_id": 2, "start_ms": 1400, "end_ms": 2400, "text": "うう"},
+    ]
+    gated_path = ctx.work_dir / "segments.gated.json"
+    gated_path.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
+
+    config = Stage6Config(
+        merge_gap_ms=50,
+        min_block_ms=800,
+        max_block_ms=1000,
+        max_lines=2,
+        chars_per_line=10,
+        target_chars_per_sec=50.0,
+    )
+    blocks_path = build_subtitle_blocks_ja(ctx, config=config)
+    blocks = json.loads(blocks_path.read_text(encoding="utf-8"))
+    durations = [item["end_ms"] - item["start_ms"] for item in blocks]
+    assert any(duration < 800 for duration in durations)

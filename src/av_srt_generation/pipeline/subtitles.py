@@ -208,6 +208,76 @@ def _block_chars_per_sec(block: Block) -> float:
     return count_jp_chars(block.text) / duration
 
 
+def _merge_blocks(left: Block, right: Block) -> Block:
+    return Block(
+        start_ms=left.start_ms,
+        end_ms=right.end_ms,
+        text=left.text + right.text,
+        segments=left.segments + right.segments,
+    )
+
+
+def _can_merge_blocks(left: Block, right: Block, config: Stage6Config) -> bool:
+    merged = _merge_blocks(left, right)
+    duration = _block_duration(merged)
+    if duration > config.max_block_ms:
+        return False
+    char_count = count_jp_chars(merged.text)
+    if char_count > config.max_chars_per_block:
+        return False
+    return _block_chars_per_sec(merged) <= config.target_chars_per_sec * 1.2
+
+
+def _merge_short_blocks(
+    ctx: WorkspaceContext, blocks: List[Block], config: Stage6Config
+) -> List[Block]:
+    if config.min_block_ms <= 0 or not blocks:
+        return blocks
+    merged_blocks = list(blocks)
+    idx = 0
+    while idx < len(merged_blocks):
+        block = merged_blocks[idx]
+        duration = _block_duration(block)
+        if duration >= config.min_block_ms:
+            idx += 1
+            continue
+        prev_block = merged_blocks[idx - 1] if idx > 0 else None
+        next_block = merged_blocks[idx + 1] if idx + 1 < len(merged_blocks) else None
+
+        candidates: List[tuple[str, Block, float, int]] = []
+        if prev_block is not None and _can_merge_blocks(prev_block, block, config):
+            gap = max(block.start_ms - prev_block.end_ms, 0)
+            merged = _merge_blocks(prev_block, block)
+            candidates.append(("prev", merged, _block_chars_per_sec(merged), gap))
+        if next_block is not None and _can_merge_blocks(block, next_block, config):
+            gap = max(next_block.start_ms - block.end_ms, 0)
+            merged = _merge_blocks(block, next_block)
+            candidates.append(("next", merged, _block_chars_per_sec(merged), gap))
+
+        if not candidates:
+            block_id = idx + 1
+            _log(
+                ctx,
+                f"stage6: warn short block kept block_id={block_id} "
+                f"duration_ms={duration}",
+            )
+            idx += 1
+            continue
+
+        candidates.sort(key=lambda item: (item[2], item[3]))
+        direction, merged, _, _ = candidates[0]
+        if direction == "prev" and prev_block is not None:
+            merged_blocks[idx - 1] = merged
+            del merged_blocks[idx]
+            idx = max(idx - 1, 0)
+        elif direction == "next" and next_block is not None:
+            merged_blocks[idx] = merged
+            del merged_blocks[idx + 1]
+        else:
+            idx += 1
+    return merged_blocks
+
+
 def _merge_segments(segments: Sequence[Segment], config: Stage6Config) -> List[Block]:
     blocks: List[Block] = []
     current: Block | None = None
@@ -379,10 +449,15 @@ def build_subtitle_blocks_ja(
             and cached_meta.get("version") == 1
             and cached_meta.get("input_fingerprint") == input_fingerprint
             and cached_meta.get("stage6_config") == _stage6_config_payload(stage6_config)
-            and cached_meta.get("blocks_sha256") == _sha256_path(blocks_path)
         ):
-            _log(ctx, "stage6: skip (cache hit)")
-            return blocks_path
+            current_sha = _sha256_path(blocks_path)
+            blocks_sha = cached_meta.get("blocks_sha256")
+            normalized_sha = cached_meta.get("normalized_blocks_sha256")
+            if blocks_sha == current_sha or (
+                cached_meta.get("normalized") is True and normalized_sha == current_sha
+            ):
+                _log(ctx, "stage6: skip (cache hit)")
+                return blocks_path
 
     _log(ctx, "stage6: start")
 
@@ -393,6 +468,7 @@ def build_subtitle_blocks_ja(
         final_blocks.extend(_enforce_block_constraints(block, stage6_config))
 
     final_blocks.sort(key=lambda item: (item.start_ms, item.end_ms))
+    final_blocks = _merge_short_blocks(ctx, final_blocks, stage6_config)
     payload = [
         {
             "block_id": idx + 1,
