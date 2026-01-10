@@ -66,6 +66,12 @@ def _asr_cache_matches(vad_segments: List[Dict[str, int]], asr_data: Any) -> boo
     return True
 
 
+def _meta_matches(meta: Any, model_repo: str, language: str) -> bool:
+    if not isinstance(meta, dict):
+        return False
+    return meta.get("model_repo") == model_repo and meta.get("language") == language
+
+
 def _extract_clip(audio_path: Path, clip_path: Path, start_ms: int, end_ms: int) -> None:
     clip_path.parent.mkdir(parents=True, exist_ok=True)
     start_sec = start_ms / 1000.0
@@ -129,6 +135,7 @@ def asr_transcribe(
     language: str = "ja",
 ) -> Path:
     asr_path = ctx.work_dir / "segments.asr.json"
+    meta_path = ctx.work_dir / "segments.asr.meta.json"
     vad_path = ctx.work_dir / "segments.vad.json"
     vad_segments = _load_vad_segments(vad_path)
 
@@ -137,7 +144,13 @@ def asr_transcribe(
             cached = read_json(asr_path)
         except Exception:
             cached = None
-        if _asr_cache_matches(vad_segments, cached):
+        try:
+            cached_meta = read_json(meta_path)
+        except Exception:
+            cached_meta = None
+        if _asr_cache_matches(vad_segments, cached) and _meta_matches(
+            cached_meta, model_repo, language
+        ):
             _log(ctx, "asr: skip (cache hit)")
             return asr_path
 
@@ -145,6 +158,7 @@ def asr_transcribe(
 
     if not vad_segments:
         write_json(asr_path, [])
+        write_json(meta_path, {"model_repo": model_repo, "language": language})
         _log(ctx, "asr: wrote 0 segments")
         return asr_path
 
@@ -167,5 +181,6 @@ def asr_transcribe(
             _log(ctx, f"asr: progress {idx}/{total}")
 
     write_json(asr_path, results)
+    write_json(meta_path, {"model_repo": model_repo, "language": language})
     _log(ctx, f"asr: wrote {len(results)} segments")
     return asr_path

@@ -25,6 +25,10 @@ def test_asr_cache_hit_skips_transcribe(tmp_path: Path, monkeypatch: pytest.Monk
     cached = [{"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "hello"}]
     asr_path = ctx.work_dir / "segments.asr.json"
     _write_json(asr_path, cached)
+    _write_json(
+        ctx.work_dir / "segments.asr.meta.json",
+        {"model_repo": "mlx-community/whisper-large-v3-mlx", "language": "ja"},
+    )
 
     def fail_transcribe(*args, **kwargs) -> str:
         raise AssertionError("transcribe should not be called on cache hit")
@@ -36,6 +40,80 @@ def test_asr_cache_hit_skips_transcribe(tmp_path: Path, monkeypatch: pytest.Monk
     assert result == asr_path
     log_text = ctx.run_log_path.read_text(encoding="utf-8")
     assert "asr: skip (cache hit)" in log_text
+
+
+def test_asr_cache_miss_when_meta_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    (ctx.work_dir / "audio.wav").write_bytes(b"wav")
+    vad_segments = [{"seg_id": 0, "start_ms": 0, "end_ms": 1000}]
+    _write_json(ctx.work_dir / "segments.vad.json", vad_segments)
+    _write_json(
+        ctx.work_dir / "segments.asr.json",
+        [{"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "old"}],
+    )
+
+    def fake_extract_clip(audio_path: Path, clip_path: Path, start_ms: int, end_ms: int) -> None:
+        clip_path.parent.mkdir(parents=True, exist_ok=True)
+        clip_path.write_bytes(b"clip")
+
+    def fake_transcribe(clip_path: Path, model_repo: str, language: str) -> str:
+        return "new-text"
+
+    monkeypatch.setattr(asr_module, "_extract_clip", fake_extract_clip)
+    monkeypatch.setattr(asr_module, "_mlx_transcribe_clip", fake_transcribe)
+
+    asr_path = asr_transcribe(ctx)
+
+    data = json.loads(asr_path.read_text(encoding="utf-8"))
+    assert data[0]["text"] == "new-text"
+    meta = json.loads(
+        (ctx.work_dir / "segments.asr.meta.json").read_text(encoding="utf-8")
+    )
+    assert meta == {"model_repo": "mlx-community/whisper-large-v3-mlx", "language": "ja"}
+
+
+def test_asr_cache_miss_when_meta_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    (ctx.work_dir / "audio.wav").write_bytes(b"wav")
+    vad_segments = [{"seg_id": 0, "start_ms": 0, "end_ms": 1000}]
+    _write_json(ctx.work_dir / "segments.vad.json", vad_segments)
+    _write_json(
+        ctx.work_dir / "segments.asr.json",
+        [{"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "old"}],
+    )
+    _write_json(
+        ctx.work_dir / "segments.asr.meta.json",
+        {"model_repo": "other", "language": "ja"},
+    )
+
+    def fake_extract_clip(audio_path: Path, clip_path: Path, start_ms: int, end_ms: int) -> None:
+        clip_path.parent.mkdir(parents=True, exist_ok=True)
+        clip_path.write_bytes(b"clip")
+
+    def fake_transcribe(clip_path: Path, model_repo: str, language: str) -> str:
+        return "new-text"
+
+    monkeypatch.setattr(asr_module, "_extract_clip", fake_extract_clip)
+    monkeypatch.setattr(asr_module, "_mlx_transcribe_clip", fake_transcribe)
+
+    asr_path = asr_transcribe(ctx)
+
+    data = json.loads(asr_path.read_text(encoding="utf-8"))
+    assert data[0]["text"] == "new-text"
+    meta = json.loads(
+        (ctx.work_dir / "segments.asr.meta.json").read_text(encoding="utf-8")
+    )
+    assert meta == {"model_repo": "mlx-community/whisper-large-v3-mlx", "language": "ja"}
 
 
 def test_asr_cache_miss_recomputes_and_overwrites(
@@ -117,5 +195,9 @@ def test_asr_empty_vad_segments(tmp_path: Path) -> None:
 
     data = json.loads(asr_path.read_text(encoding="utf-8"))
     assert data == []
+    meta = json.loads(
+        (ctx.work_dir / "segments.asr.meta.json").read_text(encoding="utf-8")
+    )
+    assert meta == {"model_repo": "mlx-community/whisper-large-v3-mlx", "language": "ja"}
     log_text = ctx.run_log_path.read_text(encoding="utf-8")
     assert "asr: wrote 0 segments" in log_text
