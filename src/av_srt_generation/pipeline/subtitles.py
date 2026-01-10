@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -55,6 +56,14 @@ def _sha256_bytes(payload: bytes) -> str:
 
 def _sha256_path(path: Path) -> str:
     return _sha256_bytes(path.read_bytes())
+
+
+def _canonical_json_sha(payload: Any) -> str:
+    serialized = (
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        .encode("utf-8")
+    )
+    return _sha256_bytes(serialized)
 
 
 def count_jp_chars(text: str) -> int:
@@ -670,6 +679,18 @@ def write_srt_ja(
     normalized_sha = _sha256_path(blocks_path)
     stage6_config = _resolve_stage6_config(config, meta_path)
     stage8_config_payload = _stage6_config_payload(stage6_config)
+    stage6_input_fingerprint = ""
+    stage6_config_sha = _canonical_json_sha({})
+    normalization_version = 0
+    if meta_path.exists():
+        try:
+            blocks_meta = read_json(meta_path)
+        except Exception:
+            blocks_meta = None
+        if isinstance(blocks_meta, dict):
+            stage6_input_fingerprint = str(blocks_meta.get("input_fingerprint", ""))
+            stage6_config_sha = _canonical_json_sha(blocks_meta.get("stage6_config", {}))
+            normalization_version = int(blocks_meta.get("normalization_version", 0))
     if srt_meta_path.exists() and output_path.exists():
         try:
             cached_meta = read_json(srt_meta_path)
@@ -681,6 +702,9 @@ def write_srt_ja(
             and cached_meta.get("version") == 1
             and cached_meta.get("normalized_blocks_sha256") == normalized_sha
             and cached_meta.get("wrap_config") == stage8_config_payload
+            and cached_meta.get("stage6_input_fingerprint") == stage6_input_fingerprint
+            and cached_meta.get("stage6_config_sha") == stage6_config_sha
+            and cached_meta.get("normalization_version") == normalization_version
             and cached_meta.get("output_path") == str(output_path)
         ):
             _log(ctx, "stage8: skip (cache hit)")
@@ -705,6 +729,9 @@ def write_srt_ja(
         "version": 1,
         "normalized_blocks_sha256": normalized_sha,
         "wrap_config": stage8_config_payload,
+        "stage6_input_fingerprint": stage6_input_fingerprint,
+        "stage6_config_sha": stage6_config_sha,
+        "normalization_version": normalization_version,
         "output_path": str(output_path),
     }
     write_json(srt_meta_path, meta)
