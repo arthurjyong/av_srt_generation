@@ -151,6 +151,25 @@ def _stage6_config_payload(config: Stage6Config) -> Dict[str, Any]:
     return payload
 
 
+def _resolve_stage6_config(
+    explicit: Stage6Config | Dict[str, Any] | None, meta_path: Path
+) -> Stage6Config:
+    if explicit is not None:
+        return _coerce_stage6_config(explicit)
+    if meta_path.exists():
+        try:
+            meta = read_json(meta_path)
+        except Exception:
+            meta = None
+        if isinstance(meta, dict):
+            stage6_config = meta.get("stage6_config")
+            if isinstance(stage6_config, dict):
+                payload = dict(stage6_config)
+                payload.pop("max_chars_per_block", None)
+                return _coerce_stage6_config(payload)
+    return Stage6Config()
+
+
 def _load_gated_segments(path: Path) -> List[Segment]:
     data = read_json(path)
     if not isinstance(data, list):
@@ -462,6 +481,8 @@ def _split_block_for_srt(block: Dict[str, Any]) -> list[Dict[str, Any]]:
     right_text = text[split_idx:]
     start_ms = int(block["start_ms"])
     end_ms = int(block["end_ms"])
+    if end_ms - start_ms <= 1:
+        return [block]
     total_chars = count_jp_chars(text)
     left_chars = count_jp_chars(left_text)
     ratio = 0.5 if total_chars == 0 else left_chars / total_chars
@@ -476,6 +497,17 @@ def _split_block_for_srt(block: Dict[str, Any]) -> list[Dict[str, Any]]:
     ]
 
 
+def _force_wrapped_lines(
+    text: str, chars_per_line: int, max_lines: int
+) -> List[str]:
+    lines = wrap_japanese(text, chars_per_line, max_lines)
+    if len(lines) <= max_lines:
+        return lines
+    kept = lines[: max_lines - 1]
+    remainder = "".join(lines[max_lines - 1 :])
+    return kept + [remainder]
+
+
 def _prepare_srt_blocks(
     ctx: WorkspaceContext,
     blocks: Iterable[Dict[str, Any]],
@@ -483,16 +515,43 @@ def _prepare_srt_blocks(
     max_lines: int,
 ) -> List[Dict[str, Any]]:
     prepared: List[Dict[str, Any]] = []
-    for block in blocks:
+    queue = list(blocks)
+    while queue:
+        block = queue.pop(0)
         text = str(block.get("text", ""))
         lines = wrap_japanese(text, chars_per_line, max_lines)
-        if len(lines) > max_lines:
+        if len(lines) <= max_lines:
+            prepared.append(
+                {"start_ms": block["start_ms"], "end_ms": block["end_ms"], "text": text}
+            )
+            continue
+        split_blocks = _split_block_for_srt(block)
+        if (
+            len(split_blocks) == 1
+            and split_blocks[0].get("start_ms") == block.get("start_ms")
+            and split_blocks[0].get("end_ms") == block.get("end_ms")
+            and split_blocks[0].get("text") == block.get("text")
+        ):
             block_id = block.get("block_id", "?")
-            _log(ctx, f"stage8: warn split block_id={block_id}")
-            split_blocks = _split_block_for_srt(block)
-            prepared.extend(_prepare_srt_blocks(ctx, split_blocks, chars_per_line, max_lines))
-        else:
-            prepared.append({"start_ms": block["start_ms"], "end_ms": block["end_ms"], "text": text})
+            duration_ms = int(block.get("end_ms", 0)) - int(block.get("start_ms", 0))
+            _log(
+                ctx,
+                "stage8: warn unsplittable "
+                f"block_id={block_id} duration_ms={duration_ms} forcing wrap",
+            )
+            forced_lines = _force_wrapped_lines(text, chars_per_line, max_lines)
+            prepared.append(
+                {
+                    "start_ms": block["start_ms"],
+                    "end_ms": block["end_ms"],
+                    "text": text,
+                    "lines": forced_lines,
+                }
+            )
+            continue
+        block_id = block.get("block_id", "?")
+        _log(ctx, f"stage8: warn split block_id={block_id}")
+        queue = split_blocks + queue
     return prepared
 
 
@@ -502,7 +561,9 @@ def _render_srt(blocks: Sequence[Dict[str, Any]], chars_per_line: int, max_lines
         start_ms = int(block["start_ms"])
         end_ms = int(block["end_ms"])
         text = str(block.get("text", ""))
-        wrapped = wrap_japanese(text, chars_per_line, max_lines)
+        wrapped = block.get("lines")
+        if not isinstance(wrapped, list):
+            wrapped = wrap_japanese(text, chars_per_line, max_lines)
         lines.append(str(idx))
         lines.append(f"{format_timestamp(start_ms)} --> {format_timestamp(end_ms)}")
         lines.extend(wrapped)
@@ -510,7 +571,11 @@ def _render_srt(blocks: Sequence[Dict[str, Any]], chars_per_line: int, max_lines
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_srt_ja(ctx: WorkspaceContext) -> Path:
+def write_srt_ja(
+    ctx: WorkspaceContext,
+    *,
+    config: Stage6Config | Dict[str, Any] | None = None,
+) -> Path:
     blocks_path = ctx.work_dir / "subtitle_blocks_ja.json"
     meta_path = ctx.work_dir / "subtitle_blocks_ja.meta.json"
     srt_meta_path = ctx.work_dir / "write_srt_ja.meta.json"
@@ -521,6 +586,8 @@ def write_srt_ja(ctx: WorkspaceContext) -> Path:
         raise FileNotFoundError(f"subtitle_blocks_ja.json not found in {ctx.work_dir}")
 
     normalized_sha = _sha256_path(blocks_path)
+    stage6_config = _resolve_stage6_config(config, meta_path)
+    stage8_config_payload = _stage6_config_payload(stage6_config)
     if srt_meta_path.exists() and output_path.exists():
         try:
             cached_meta = read_json(srt_meta_path)
@@ -531,6 +598,7 @@ def write_srt_ja(ctx: WorkspaceContext) -> Path:
             and cached_meta.get("stage") == "stage8"
             and cached_meta.get("version") == 1
             and cached_meta.get("normalized_blocks_sha256") == normalized_sha
+            and cached_meta.get("wrap_config") == stage8_config_payload
             and cached_meta.get("output_path") == str(output_path)
         ):
             _log(ctx, "stage8: skip (cache hit)")
@@ -543,15 +611,18 @@ def write_srt_ja(ctx: WorkspaceContext) -> Path:
     prepared = _prepare_srt_blocks(
         ctx,
         data,
-        chars_per_line=Stage6Config().chars_per_line,
-        max_lines=Stage6Config().max_lines,
+        chars_per_line=stage6_config.chars_per_line,
+        max_lines=stage6_config.max_lines,
     )
-    srt_text = _render_srt(prepared, Stage6Config().chars_per_line, Stage6Config().max_lines)
+    srt_text = _render_srt(
+        prepared, stage6_config.chars_per_line, stage6_config.max_lines
+    )
     output_path.write_text(srt_text, encoding="utf-8")
     meta = {
         "stage": "stage8",
         "version": 1,
         "normalized_blocks_sha256": normalized_sha,
+        "wrap_config": stage8_config_payload,
         "output_path": str(output_path),
     }
     write_json(srt_meta_path, meta)
