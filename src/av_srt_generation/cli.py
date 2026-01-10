@@ -7,6 +7,11 @@ from av_srt_generation.pipeline.audio import extract_audio
 from av_srt_generation.pipeline.vad import vad_segment
 from av_srt_generation.pipeline.asr import asr_transcribe
 from av_srt_generation.pipeline.gate import gate_segments
+from av_srt_generation.pipeline.subtitles import (
+    build_subtitle_blocks_ja,
+    normalize_subtitle_blocks_ja,
+    write_srt_ja,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,6 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     vad_path = vad_segment(ctx)
     asr_path = asr_transcribe(ctx)
     gated_path = gate_segments(ctx)
+    blocks_path = build_subtitle_blocks_ja(ctx)
+    normalized_path = normalize_subtitle_blocks_ja(ctx)
+    srt_path = write_srt_ja(ctx)
 
     print(f"Workspace directory: {ctx.work_dir}")
     print("Artifacts:")
@@ -35,6 +43,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  - VAD segments: {vad_path}")
     print(f"  - ASR segments: {asr_path}")
     print(f"  - Gated segments: {gated_path}")
+    print(f"  - Subtitle blocks: {blocks_path}")
+    print(f"  - Normalized blocks: {normalized_path}")
+    print(f"  - SRT: {srt_path}")
     return 0
 
 
