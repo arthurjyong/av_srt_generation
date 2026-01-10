@@ -217,7 +217,11 @@ def _merge_blocks(left: Block, right: Block) -> Block:
     )
 
 
-def _can_merge_blocks(left: Block, right: Block, config: Stage6Config) -> bool:
+def _can_merge_blocks(
+    left: Block, right: Block, config: Stage6Config, gap_ms: int | None = None
+) -> bool:
+    if gap_ms is not None and gap_ms > config.merge_gap_ms:
+        return False
     merged = _merge_blocks(left, right)
     duration = _block_duration(merged)
     if duration > config.max_block_ms:
@@ -245,14 +249,16 @@ def _merge_short_blocks(
         next_block = merged_blocks[idx + 1] if idx + 1 < len(merged_blocks) else None
 
         candidates: List[tuple[str, Block, float, int]] = []
-        if prev_block is not None and _can_merge_blocks(prev_block, block, config):
+        if prev_block is not None:
             gap = max(block.start_ms - prev_block.end_ms, 0)
-            merged = _merge_blocks(prev_block, block)
-            candidates.append(("prev", merged, _block_chars_per_sec(merged), gap))
-        if next_block is not None and _can_merge_blocks(block, next_block, config):
+            if _can_merge_blocks(prev_block, block, config, gap_ms=gap):
+                merged = _merge_blocks(prev_block, block)
+                candidates.append(("prev", merged, _block_chars_per_sec(merged), gap))
+        if next_block is not None:
             gap = max(next_block.start_ms - block.end_ms, 0)
-            merged = _merge_blocks(block, next_block)
-            candidates.append(("next", merged, _block_chars_per_sec(merged), gap))
+            if _can_merge_blocks(block, next_block, config, gap_ms=gap):
+                merged = _merge_blocks(block, next_block)
+                candidates.append(("next", merged, _block_chars_per_sec(merged), gap))
 
         if not candidates:
             block_id = idx + 1

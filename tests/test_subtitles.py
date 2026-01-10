@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 
 from av_srt_generation.pipeline.subtitles import (
+    Block,
+    Segment,
     Stage6Config,
+    _merge_short_blocks,
     build_subtitle_blocks_ja,
     format_timestamp,
     normalize_japanese_text,
@@ -176,7 +179,7 @@ def test_stage6_merges_short_block(tmp_path: Path) -> None:
     gated_path.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
 
     config = Stage6Config(
-        merge_gap_ms=50,
+        merge_gap_ms=150,
         min_block_ms=800,
         max_block_ms=4000,
         max_lines=2,
@@ -214,3 +217,36 @@ def test_stage6_keeps_unmergeable_short_block(tmp_path: Path) -> None:
     blocks = json.loads(blocks_path.read_text(encoding="utf-8"))
     durations = [item["end_ms"] - item["start_ms"] for item in blocks]
     assert any(duration < 800 for duration in durations)
+
+
+def _make_block(start_ms: int, end_ms: int, text: str) -> Block:
+    segment = Segment(start_ms=start_ms, end_ms=end_ms, text=text)
+    return Block(start_ms=start_ms, end_ms=end_ms, text=text, segments=[segment])
+
+
+def test_merge_short_blocks_respects_merge_gap(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    blocks = [
+        _make_block(0, 200, "あ"),
+        _make_block(5200, 5400, "い"),
+    ]
+    config = Stage6Config(merge_gap_ms=250, min_block_ms=800, max_block_ms=5000)
+    merged = _merge_short_blocks(ctx, blocks, config)
+    assert len(merged) == 2
+
+
+def test_merge_short_blocks_allows_small_gap(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    blocks = [
+        _make_block(0, 200, "あ"),
+        _make_block(300, 500, "い"),
+    ]
+    config = Stage6Config(merge_gap_ms=250, min_block_ms=800, max_block_ms=5000)
+    merged = _merge_short_blocks(ctx, blocks, config)
+    assert len(merged) == 1
