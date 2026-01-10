@@ -5,6 +5,7 @@ import argparse
 from av_srt_generation.pipeline.workspace import init_workspace
 from av_srt_generation.pipeline.audio import extract_audio
 from av_srt_generation.pipeline.vad import vad_segment
+from av_srt_generation.pipeline.asr import asr_transcribe
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     ctx = init_workspace(args.video_path)
     audio_path = extract_audio(ctx)
     vad_path = vad_segment(ctx)
+    asr_path = asr_transcribe(ctx)
 
     print(f"Workspace directory: {ctx.work_dir}")
     print("Artifacts:")
@@ -29,6 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  - run log: {ctx.run_log_path}")
     print(f"  - audio: {audio_path}")
     print(f"  - VAD segments: {vad_path}")
+    print(f"  - ASR segments: {asr_path}")
     return 0
 
 
