@@ -6,7 +6,7 @@ This file records non-trivial decisions so the pipeline stays consistent.
 - CLI name: `av_srt_generation`
 - Output SRT beside video:
   - `<basename>.ja.srt`
-  - `<basename>.zh-Hant.srt`
+  - `<basename>.zh-TW.srt`
 - Working folder beside video: `<video_dir>/<basename>/`
 
 ## Time & timestamps
@@ -24,4 +24,4 @@ This file records non-trivial decisions so the pipeline stays consistent.
 ## Translation
 - Backend: TBD (LLM API)
 - Cache key: hash(normalized Japanese subtitle text)
-- Output language: zh-Hant
+- Output language: zh-TW
