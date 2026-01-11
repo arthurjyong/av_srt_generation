@@ -34,7 +34,7 @@ Example:
 * Outputs beside video:
 
   * `/path/Movie01.ja.srt`
-  * `/path/Movie01.zh-Hant.srt`
+  * `/path/Movie01.zh-TW.srt`
 
 Resume policy:
 
@@ -48,14 +48,14 @@ Resume policy:
 Outputs:
 
 * `<basename>.ja.srt`
-* `<basename>.zh-Hant.srt`
+* `<basename>.zh-TW.srt`
 
 Rationale:
 
 * Players like VLC commonly auto-detect external subtitles that share the same basename and differ by suffix/extra tokens.
 * Using explicit language tags is conventional and easy to manage.
 
-(If needed later, also support `<basename>.jpn.srt` / `<basename>.zho.srt`, but default to `.ja` and `.zh-Hant`.)
+(If needed later, also support `<basename>.jpn.srt` / `<basename>.zho.srt`, but default to `.ja` and `.zh-TW`.)
 
 ---
 
@@ -99,7 +99,7 @@ report.json
 Final outputs (beside original video):
 
 * `<video_dir>/<basename>.ja.srt`
-* `<video_dir>/<basename>.zh-Hant.srt`
+* `<video_dir>/<basename>.zh-TW.srt`
 
 ---
 
@@ -375,11 +375,11 @@ Cache:
 
 * `work_dir/translate_cache.jsonl` append-only
 * key = hash(normalized JP text)
-* value = zh-Hant translation + metadata (model name)
+* value = zh-TW translation + metadata (model name)
 
 Translation constraints (conceptual prompt):
 
-* Translate Japanese → Traditional Chinese (zh-Hant)
+* Translate Japanese → Traditional Chinese (zh-TW)
 * faithful meaning, concise subtitle style
 * no added content, no explanations
 * keep max 2 lines, avoid overly long lines
@@ -395,7 +395,7 @@ Resume:
 
 Output path:
 
-* `<video_dir>/<basename>.zh-Hant.srt`
+* `<video_dir>/<basename>.zh-TW.srt`
 
 Timestamps identical to JP SRT.
 Text = translated blocks.
@@ -453,6 +453,6 @@ Translation:
 
 * LLM per block
 * cached by hash
-* output zh-Hant
+* output zh-TW
 
 ---

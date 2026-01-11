@@ -1,8 +1,8 @@
 # av_srt_generation
 
-Resumable CLI pipeline to generate Japanese + Traditional Chinese subtitles (`.srt`) from a local video.
+Resumable CLI pipeline to generate Japanese + Traditional Chinese (Taiwan) subtitles (`.srt`) from a local video.
 
-It creates a sidecar working folder next to the video (same basename) to store intermediate artifacts and allow safe resume/re-run. Final SRT files are written beside the original video using VLC-friendly naming (e.g. `video.ja.srt`, `video.zh-Hant.srt`).
+It creates a sidecar working folder next to the video (same basename) to store intermediate artifacts and allow safe resume/re-run. Final SRT files are written beside the original video using VLC-friendly naming (e.g. `video.ja.srt`, `video.zh-TW.srt`).
 
 > **Apple Silicon note:** the default ASR path uses `mlx-whisper` / MLX and is intended for Apple Silicon Macs.
 
@@ -16,10 +16,10 @@ It creates a sidecar working folder next to the video (same basename) to store i
   - merge if gap ≤ 250 ms and max block duration ≤ 6 s
   - split long blocks sensibly (punctuation-first)
   - prefer 1–2 lines per subtitle
-- Optional translation (JP → zh-Hant) with hashing + cache to avoid repeat LLM calls
+- Optional translation (JP → zh-TW) via Google Cloud Translation API (Basic v2)
 - Writes VLC-friendly outputs:
   - `<video_basename>.ja.srt`
-  - `<video_basename>.zh-Hant.srt`
+  - `<video_basename>.zh-TW.srt`
 
 ## Quick start (dev)
 
@@ -64,6 +64,12 @@ pip install -e ".[all]"  # or ".[vad,asr]"
 av_srt_generation "/path/to/video.mp4"
 ```
 
+Enable zh-TW translation (disabled by default):
+
+```bash
+av_srt_generation --translate-zh-tw "/path/to/video.mp4"
+```
+
 ### Outputs
 
 Given:
@@ -76,7 +82,7 @@ This tool will create:
 * Final subtitles (beside the video):
 
   * `/path/to/MyVideo.ja.srt`
-  * `/path/to/MyVideo.zh-Hant.srt` (if translation enabled)
+  * `/path/to/MyVideo.zh-TW.srt` (if translation enabled, overwritten on each run)
 
 ### Working folder structure (typical)
 
@@ -87,7 +93,6 @@ Inside `/path/to/MyVideo/`:
 * `segments.vad.json` — VAD segments (ms timestamps)
 * `asr.jsonl` — per-segment ASR results (append-only; resumable)
 * `subtitle_blocks_ja.json` — merged/split blocks before SRT write
-* `translate_cache.jsonl` — cached translations by hash
 * `report.json` — run metrics + counts
 * `run.log` — stage-by-stage logs
 
@@ -95,7 +100,7 @@ Inside `/path/to/MyVideo/`:
 
 Defaults are currently defined in code. Planned:
 
-* CLI flags (e.g. `--lang`, `--no-translate`, `--resume/--force`)
+* CLI flags (e.g. `--lang`, `--translate-zh-tw`, `--resume/--force`)
 * Config file support (YAML/JSON)
 
 ## Requirements
@@ -105,7 +110,7 @@ Planned / typical dependencies:
 * Python 3.10+
 * ASR backend (e.g. Whisper/WhisperX or equivalent)
 * VAD backend (e.g. Silero VAD)
-* Optional translation backend (LLM API), with caching enabled by default
+* Optional translation backend (Google Translate API v2)
 
 ## Development notes
 
@@ -122,9 +127,30 @@ Planned / typical dependencies:
 * [ ] ASR with quality gating + salvage retry
 * [ ] Subtitle chunk builder + normalization
 * [ ] SRT writer (`.ja.srt`)
-* [ ] Translation + cache (`.zh-Hant.srt`)
+* [ ] Translation (`.zh-TW.srt`)
 * [ ] CLI flags + config file
 
 ## License
 
 See `LICENSE`.
+
+## Google Translate setup
+
+Translation to zh-TW is disabled by default. To enable it, set the environment
+variable `GOOGLE_TRANSLATE_API_KEY` and pass `--translate-zh-tw`.
+
+```bash
+export GOOGLE_TRANSLATE_API_KEY="your-api-key"
+```
+
+Quick API test:
+
+```bash
+curl -s \\
+  -X POST \\
+  -d "q=こんにちは" \\
+  -d "source=ja" \\
+  -d "target=zh-TW" \\
+  -d "format=text" \\
+  "https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_TRANSLATE_API_KEY}"
+```
