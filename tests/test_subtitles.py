@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import hashlib
 
 from av_srt_generation.pipeline.subtitles import (
     Block,
@@ -140,7 +139,7 @@ def test_stage8_unsplittable_block_forces_wrap(tmp_path: Path) -> None:
     assert len(entry_lines) == 2
 
 
-def test_stage6_cache_hit_after_normalize(tmp_path: Path) -> None:
+def test_stage6_deterministic_output_after_normalize(tmp_path: Path) -> None:
     video = tmp_path / "video.mp4"
     video.write_bytes(b"vid")
     ctx = init_workspace(video)
@@ -158,12 +157,11 @@ def test_stage6_cache_hit_after_normalize(tmp_path: Path) -> None:
     second_bytes = blocks_path.read_bytes()
     assert first_bytes != second_bytes
 
-    first_mtime = blocks_path.stat().st_mtime_ns
     blocks_path_again = build_subtitle_blocks_ja(ctx)
-    second_mtime = blocks_path_again.stat().st_mtime_ns
-    assert first_mtime == second_mtime
+    third_bytes = blocks_path_again.read_bytes()
+    assert first_bytes == third_bytes
     log_text = ctx.run_log_path.read_text(encoding="utf-8")
-    assert "stage6: skip (cache hit)" in log_text
+    assert "stage6: skip (cache hit)" not in log_text
 
 
 def test_stage6_merges_short_block(tmp_path: Path) -> None:
@@ -253,7 +251,29 @@ def test_merge_short_blocks_allows_small_gap(tmp_path: Path) -> None:
     assert len(merged) == 1
 
 
-def test_stage8_cache_invalidates_on_stage6_meta_change(tmp_path: Path) -> None:
+def test_stage7_deterministic_output(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"vid")
+    ctx = init_workspace(video)
+
+    gated_path = ctx.work_dir / "segments.gated.json"
+    segments = [
+        {"seg_id": 0, "start_ms": 0, "end_ms": 1000, "text": "テスト,"},
+        {"seg_id": 1, "start_ms": 1100, "end_ms": 2200, "text": "いいい"},
+    ]
+    gated_path.write_text(json.dumps(segments, ensure_ascii=False), encoding="utf-8")
+
+    build_subtitle_blocks_ja(ctx)
+    normalized_path = normalize_subtitle_blocks_ja(ctx)
+    first_bytes = normalized_path.read_bytes()
+    normalize_subtitle_blocks_ja(ctx)
+    second_bytes = normalized_path.read_bytes()
+    assert first_bytes == second_bytes
+    log_text = ctx.run_log_path.read_text(encoding="utf-8")
+    assert "stage7: skip (cache hit)" not in log_text
+
+
+def test_stage8_deterministic_output(tmp_path: Path) -> None:
     video = tmp_path / "video.mp4"
     video.write_bytes(b"vid")
     ctx = init_workspace(video)
@@ -263,7 +283,6 @@ def test_stage8_cache_invalidates_on_stage6_meta_change(tmp_path: Path) -> None:
     text = "あああ"
     blocks = [{"block_id": 1, "start_ms": 0, "end_ms": 2000, "text": text}]
     blocks_path.write_text(json.dumps(blocks, ensure_ascii=False), encoding="utf-8")
-    normalized_sha = hashlib.sha256(blocks_path.read_bytes()).hexdigest()
     stage6_config = Stage6Config()
     meta = {
         "stage": "stage6",
@@ -278,68 +297,16 @@ def test_stage8_cache_invalidates_on_stage6_meta_change(tmp_path: Path) -> None:
             "target_chars_per_sec": stage6_config.target_chars_per_sec,
             "max_chars_per_block": stage6_config.max_chars_per_block,
         },
-        "normalized": True,
-        "normalization_version": 1,
-        "normalized_blocks_sha256": normalized_sha,
     }
     meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
     srt_path = write_srt_ja(ctx)
-    srt_meta_path = ctx.work_dir / "write_srt_ja.meta.json"
-    first_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
-    assert first_meta["stage6_input_fingerprint"] == "A"
-
-    meta["input_fingerprint"] = "B"
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-
+    first_text = srt_path.read_text(encoding="utf-8")
     srt_path_again = write_srt_ja(ctx)
-    second_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
-    assert srt_path_again == srt_path
-    assert second_meta["stage6_input_fingerprint"] == "B"
-
-
-def test_stage8_cache_invalidates_on_upstream_meta_change(tmp_path: Path) -> None:
-    video = tmp_path / "video.mp4"
-    video.write_bytes(b"vid")
-    ctx = init_workspace(video)
-
-    blocks_path = ctx.work_dir / "subtitle_blocks_ja.json"
-    meta_path = ctx.work_dir / "subtitle_blocks_ja.meta.json"
-    text = "あああ"
-    blocks = [{"block_id": 1, "start_ms": 0, "end_ms": 2000, "text": text}]
-    blocks_path.write_text(json.dumps(blocks, ensure_ascii=False), encoding="utf-8")
-    normalized_sha = hashlib.sha256(blocks_path.read_bytes()).hexdigest()
-    stage6_config = Stage6Config()
-    meta = {
-        "stage": "stage6",
-        "version": 1,
-        "input_fingerprint": "A",
-        "stage6_config": {
-            "merge_gap_ms": stage6_config.merge_gap_ms,
-            "max_block_ms": stage6_config.max_block_ms,
-            "min_block_ms": stage6_config.min_block_ms,
-            "max_lines": stage6_config.max_lines,
-            "chars_per_line": stage6_config.chars_per_line,
-            "target_chars_per_sec": stage6_config.target_chars_per_sec,
-            "max_chars_per_block": stage6_config.max_chars_per_block,
-        },
-        "normalized": True,
-        "normalization_version": 1,
-        "normalized_blocks_sha256": normalized_sha,
-    }
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-
-    write_srt_ja(ctx)
-    srt_meta_path = ctx.work_dir / "write_srt_ja.meta.json"
-    first_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
-    first_upstream = first_meta["upstream_meta_sha256"]
-
-    meta["new_field"] = "x"
-    meta_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-
-    write_srt_ja(ctx)
-    second_meta = json.loads(srt_meta_path.read_text(encoding="utf-8"))
-    assert second_meta["upstream_meta_sha256"] != first_upstream
+    second_text = srt_path_again.read_text(encoding="utf-8")
+    assert first_text == second_text
+    log_text = ctx.run_log_path.read_text(encoding="utf-8")
+    assert "stage8: skip (cache hit)" not in log_text
 
 
 def test_stage6_reruns_when_gated_json_changes(tmp_path: Path) -> None:
