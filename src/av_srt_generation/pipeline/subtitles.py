@@ -462,26 +462,6 @@ def build_subtitle_blocks_ja(
     input_fingerprint = _stage6_input_fingerprint(
         gated_json_sha256, gated_meta_sha256
     )
-    if blocks_path.exists() and meta_path.exists():
-        try:
-            cached_meta = read_json(meta_path)
-        except Exception:
-            cached_meta = None
-        if (
-            isinstance(cached_meta, dict)
-            and cached_meta.get("stage") == "stage6"
-            and cached_meta.get("version") == 1
-            and cached_meta.get("input_fingerprint") == input_fingerprint
-            and cached_meta.get("stage6_config") == _stage6_config_payload(stage6_config)
-        ):
-            current_sha = _sha256_path(blocks_path)
-            blocks_sha = cached_meta.get("blocks_sha256")
-            normalized_sha = cached_meta.get("normalized_blocks_sha256")
-            if blocks_sha == current_sha or (
-                cached_meta.get("normalized") is True and normalized_sha == current_sha
-            ):
-                _log(ctx, "stage6: skip (cache hit)")
-                return blocks_path
 
     _log(ctx, "stage6: start")
 
@@ -526,19 +506,14 @@ def normalize_subtitle_blocks_ja(ctx: WorkspaceContext) -> Path:
         _log(ctx, "stage7: missing subtitle_blocks_ja.json")
         raise FileNotFoundError(f"subtitle_blocks_ja.json not found in {ctx.work_dir}")
 
+    meta: Dict[str, Any] = {}
     if meta_path.exists():
         try:
             cached_meta = read_json(meta_path)
         except Exception:
             cached_meta = None
-        if (
-            isinstance(cached_meta, dict)
-            and cached_meta.get("normalized") is True
-            and cached_meta.get("normalization_version") == 1
-            and cached_meta.get("normalized_blocks_sha256") == _sha256_path(blocks_path)
-        ):
-            _log(ctx, "stage7: skip (cache hit)")
-            return blocks_path
+        if isinstance(cached_meta, dict):
+            meta.update(cached_meta)
 
     _log(ctx, "stage7: start")
     data = read_json(blocks_path)
@@ -552,14 +527,6 @@ def normalize_subtitle_blocks_ja(ctx: WorkspaceContext) -> Path:
         normalized.append({**item, "text": normalize_japanese_text(text)})
     write_json(blocks_path, normalized)
     normalized_sha = _sha256_path(blocks_path)
-    meta: Dict[str, Any] = {}
-    if meta_path.exists():
-        try:
-            cached_meta = read_json(meta_path)
-        except Exception:
-            cached_meta = None
-        if isinstance(cached_meta, dict):
-            meta.update(cached_meta)
     meta.update(
         {
             "normalized": True,
@@ -704,25 +671,6 @@ def write_srt_ja(
             stage6_input_fingerprint = str(blocks_meta.get("input_fingerprint", ""))
             stage6_config_sha = _canonical_json_sha(blocks_meta.get("stage6_config", {}))
             normalization_version = int(blocks_meta.get("normalization_version", 0))
-    if srt_meta_path.exists() and output_path.exists():
-        try:
-            cached_meta = read_json(srt_meta_path)
-        except Exception:
-            cached_meta = None
-        if (
-            isinstance(cached_meta, dict)
-            and cached_meta.get("stage") == "stage8"
-            and cached_meta.get("version") == 1
-            and cached_meta.get("normalized_blocks_sha256") == normalized_sha
-            and cached_meta.get("wrap_config") == stage8_config_payload
-            and cached_meta.get("upstream_meta_sha256") == upstream_meta_sha256
-            and cached_meta.get("stage6_input_fingerprint") == stage6_input_fingerprint
-            and cached_meta.get("stage6_config_sha") == stage6_config_sha
-            and cached_meta.get("normalization_version") == normalization_version
-            and cached_meta.get("output_path") == str(output_path)
-        ):
-            _log(ctx, "stage8: skip (cache hit)")
-            return output_path
 
     _log(ctx, "stage8: start")
     data = read_json(blocks_path)
