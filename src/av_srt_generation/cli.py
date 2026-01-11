@@ -12,6 +12,7 @@ from av_srt_generation.pipeline.subtitles import (
     normalize_subtitle_blocks_ja,
     write_srt_ja,
 )
+from av_srt_generation.utils.prereqs import require_ffmpeg
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    require_ffmpeg()
     ctx = init_workspace(args.video_path)
     audio_path = extract_audio(ctx)
     vad_path = vad_segment(ctx)

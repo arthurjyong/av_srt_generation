@@ -12,6 +12,11 @@ license = { file = "LICENSE" }
 authors = [{ name = "Arthur" }]
 dependencies = []
 
+[project.optional-dependencies]
+vad = ["silero-vad", "torch", "torchaudio", "onnxruntime", "soundfile"]
+asr = ["mlx-whisper"]
+all = ["silero-vad", "torch", "torchaudio", "onnxruntime", "soundfile", "mlx-whisper"]
+
 [project.scripts]
 av_srt_generation = "av_srt_generation.cli:main"
 

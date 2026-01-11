@@ -4,6 +4,8 @@ Resumable CLI pipeline to generate Japanese + Traditional Chinese subtitles (`.s
 
 It creates a sidecar working folder next to the video (same basename) to store intermediate artifacts and allow safe resume/re-run. Final SRT files are written beside the original video using VLC-friendly naming (e.g. `video.ja.srt`, `video.zh-Hant.srt`).
 
+> **Apple Silicon note:** the default ASR path uses `mlx-whisper` / MLX and is intended for Apple Silicon Macs.
+
 ## Features
 
 - One-command workflow: `av_srt_generation <video_path>`
@@ -33,6 +35,28 @@ source .venv/bin/activate  # macOS/Linux
 pip install -U pip
 pip install -e .
 ```
+
+## Installation
+
+```bash
+pip install -e .
+```
+
+```bash
+pip install -e ".[vad]"
+```
+
+```bash
+pip install -e ".[asr]"
+```
+
+```bash
+pip install -e ".[all]"  # or ".[vad,asr]"
+```
+
+## External prerequisites
+
+* `ffmpeg` on PATH (macOS/Homebrew: `brew install ffmpeg`)
 
 ## Usage
 
@@ -79,7 +103,6 @@ Defaults are currently defined in code. Planned:
 Planned / typical dependencies:
 
 * Python 3.10+
-* `ffmpeg` available on PATH
 * ASR backend (e.g. Whisper/WhisperX or equivalent)
 * VAD backend (e.g. Silero VAD)
 * Optional translation backend (LLM API), with caching enabled by default
