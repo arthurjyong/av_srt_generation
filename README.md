@@ -87,6 +87,8 @@ Enable zh-TW translation (disabled by default):
 ```bash
 export GOOGLE_TRANSLATE_API_KEY="your-api-key"
 av_srt_generation --translate-zh-tw "/path/to/video.mp4"
+
+Note: translation runs on every invocation when `--translate-zh-tw` is set (no cache). The `.zh-TW.srt` file is overwritten each run and incurs API calls/costs.
 ```
 
 ### Resume behavior
@@ -105,7 +107,7 @@ This tool will create:
 - Working folder: `/path/to/MyVideo.av_srt/`
 - Final subtitles (beside the video):
   - `/path/to/MyVideo.ja.srt`
-  - `/path/to/MyVideo.zh-TW.srt` (if translation enabled; overwritten on each run)
+  - `/path/to/MyVideo.zh-TW.srt` (if translation enabled; overwritten on each run and incurs API calls)
 
 ### Working folder structure (typical)
 
@@ -153,6 +155,7 @@ curl -s \
 
 - **ffmpeg not found**: install it and ensure it is on `PATH` (`brew install ffmpeg`).
 - **GOOGLE_TRANSLATE_API_KEY missing**: export the key before running with `--translate-zh-tw`.
+- **Unexpected API costs**: translation runs every time `--translate-zh-tw` is used and overwrites `.zh-TW.srt` (no cache).
 - **ASR import error (`mlx-whisper` / `mlx`)**: install `pip install mlx-whisper mlx` or use Apple Silicon.
 - **Model download slow**: the first ASR run downloads the Whisper model; retry later or pre-download.
 - **Permission errors**: make sure the video directory is writable (the `.av_srt` folder is created beside it).

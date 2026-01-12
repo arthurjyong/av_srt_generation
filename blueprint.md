@@ -131,7 +131,7 @@ Stage-level skip rules:
 * SRT building is deterministic from gated segments → can always rebuild quickly.
 * Translation:
 
-  * no cache yet; translation runs each time unless you keep the existing `.zh-TW.srt`.
+  * no cache; translation runs on every `--translate-zh-tw` invocation and overwrites `.zh-TW.srt` (incurs API calls).
 
 Crash safety:
 
@@ -346,7 +346,7 @@ Backend:
 
 Resume:
 
-* No cache yet; translation runs each time unless you keep the existing `.zh-TW.srt`.
+* No cache; translation runs on every `--translate-zh-tw` invocation and overwrites `.zh-TW.srt` (incurs API calls).
 
 ---
 
@@ -401,7 +401,7 @@ Subtitles:
 Translation:
 
 * Google Translate API v2 per block
-* no cache yet
+* no cache; reruns with `--translate-zh-tw` overwrite `.zh-TW.srt` and incur API calls
 * output zh-TW
 
 ---
