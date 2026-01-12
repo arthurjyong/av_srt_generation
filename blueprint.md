@@ -1,11 +1,11 @@
-# Blueprint: `av_srt_generation <video_path>` → JP SRT + ZH-Hant SRT (Quality-first, Aggressive Drop, Resumable)
+# Blueprint: `av_srt_generation <video_path>` → JP SRT + zh-TW SRT (Quality-first, Aggressive Drop, Resumable)
 
 ## 0) Goal
 
 Given a large Japanese video file (≈1–2 hours, 5–6GB) with substantial non-speech noise, generate:
 
 1. **Japanese subtitles** (`.srt`) with accurate timestamps and readable chunking.
-2. **Traditional Chinese subtitles** (`.srt`) translated from Japanese, same timestamps.
+2. **Traditional Chinese subtitles** (`.srt`, zh-TW) translated from Japanese, same timestamps.
 
 Priorities:
 
@@ -23,14 +23,14 @@ Run:
 
 Behavior:
 
-* Automatically create a **work folder next to the video**, named **exactly the same as the video basename** (without extension).
+* Automatically create a **work folder next to the video**, named **`<basename>.av_srt`**.
 * All intermediate artifacts go inside that folder.
 * Final `.srt` outputs are written **beside the original video** and share the same basename, with language suffixes.
 
 Example:
 
 * Input: `/path/Movie01.mp4`
-* Work folder: `/path/Movie01/`
+* Work folder: `/path/Movie01.av_srt/`
 * Outputs beside video:
 
   * `/path/Movie01.ja.srt`
@@ -39,7 +39,7 @@ Example:
 Resume policy:
 
 * If work folder exists and matches the same video (verified via stored metadata), resume from existing artifacts.
-* If a different video is detected under the same basename folder, create a new folder variant (e.g. `Movie01__2`) or refuse unless forced (implementation decision later).
+* If a different video is detected under the same basename, create a new folder variant (e.g. `Movie01.av_srt.001`).
 
 ---
 
@@ -64,14 +64,14 @@ Rationale:
 1. Probe video + initialize workspace
 2. Extract canonical audio WAV
 3. VAD speech segmentation (aggressive)
-4. ASR per speech segment (Whisper large-v3, quality-first)
+4. ASR per speech segment (mlx-whisper large-v3, quality-first)
 5. Aggressive quality gating (drop noise/hallucination)
 6. Build subtitle blocks (merge/split for readability)
 7. Japanese text normalization (。、？！ etc., keep filler)
 8. Write Japanese SRT beside video
-9. Translate each JP block with LLM (cached)
-10. Write ZH-Hant SRT beside video
-11. Produce logs + report
+9. Translate each JP block with Google Translate API (optional)
+10. Write zh-TW SRT beside video
+11. Produce logs
 
 Each stage writes persistent artifacts so reruns skip completed work.
 
@@ -81,19 +81,23 @@ Each stage writes persistent artifacts so reruns skip completed work.
 
 Create:
 
-* `work_dir = <video_dir>/<basename>/`
+* `work_dir = <video_dir>/<basename>.av_srt/`
 
 Inside `work_dir`:
 
 ```
 media.json
+run.log
 audio.wav
 segments.vad.json
-asr.jsonl
+segments.asr.json
+segments.asr.meta.json
+asr_clips/
+segments.gated.json
+segments.gated.meta.json
 subtitle_blocks_ja.json
-translate_cache.jsonl
-run.log
-report.json
+subtitle_blocks_ja.meta.json
+write_srt_ja.meta.json
 ```
 
 Final outputs (beside original video):
@@ -110,12 +114,9 @@ On every run:
 * Read `work_dir/media.json` if exists.
 * Verify it corresponds to the same input video:
 
-  * compare absolute path, file size, and optionally a fast hash/fingerprint (or mtime + size).
+  * compare absolute path, file size, and mtime.
 * If matched → resume.
-* If not matched → either:
-
-  * create a new unique work_dir name, OR
-  * stop with clear message (future option).
+* If not matched → create a new unique work_dir name.
 
 Stage-level skip rules:
 
@@ -123,16 +124,18 @@ Stage-level skip rules:
 * If `segments.vad.json` exists → skip VAD.
 * For ASR:
 
-  * read existing `asr.jsonl` to determine completed `seg_id`s → skip those segments.
-* SRT building is deterministic from `asr.jsonl` → can always rebuild quickly.
+  * if `segments.asr.json` exists and `segments.asr.meta.json` matches the model + language → skip ASR.
+* For gating:
+
+  * if `segments.gated.json` + `segments.gated.meta.json` match → skip.
+* SRT building is deterministic from gated segments → can always rebuild quickly.
 * Translation:
 
-  * use `translate_cache.jsonl` keyed by hash(JP block text) → cache hits skip LLM.
+  * no cache; translation runs on every `--translate-zh-tw` invocation and overwrites `.zh-TW.srt` (incurs API calls).
 
 Crash safety:
 
-* Write outputs incrementally (append-only for `asr.jsonl` and cache).
-* After each segment, flush to disk.
+* Write outputs per stage to deterministic filenames.
 
 ---
 
@@ -148,13 +151,13 @@ Actions:
 
 * Derive `basename` from video filename (strip extension).
 * Create `work_dir` beside video if missing.
-* Probe media metadata and store to `work_dir/media.json`:
+* Store metadata to `work_dir/media.json`:
 
   * input path
-  * file size
-  * duration (ms)
-  * audio stream basic info (codec, channels, sample rate if available)
-  * a fingerprint strategy (size + mtime, or partial hash) for resume validation
+  * file name
+  * work dir path
+  * fingerprint (size + mtime) for resume validation
+  * created timestamp
 * Initialize `work_dir/run.log` header.
 
 Failure:
@@ -191,21 +194,17 @@ Purpose:
 
 VAD engine:
 
-* Silero VAD
+* Silero VAD (torch hub)
 
-Aggressive defaults:
+Defaults:
 
-* `vad_threshold = 0.70`
-* `min_speech_duration = 0.60s`
-* `min_silence_duration = 0.40s`
-* `pad_start = 0.15s`, `pad_end = 0.20s`
-* `max_segment_len = 20s`
+* Silero defaults for speech detection
+* max segment length = 30s (`max_segment_ms=30000`)
 
 Post-processing:
 
-* merge extremely short gaps only if it doesn’t exceed `max_segment_len`
-* drop too-short segments
-* split long segments
+* normalize to non-overlapping segments
+* split any segment longer than `max_segment_ms`
 
 Output:
 
@@ -213,8 +212,6 @@ Output:
 
   * seg_id
   * start_ms, end_ms
-  * duration_ms
-  * optional VAD confidence stats
 
 Resume:
 
@@ -230,67 +227,39 @@ Purpose:
 
 ASR:
 
-* faster-whisper + Whisper `large-v3`
-
-Decode defaults:
-
-* `language = ja`
-* `beam_size = 10`
-* `patience = 2.0`
-* temperature fallback schedule: `[0.0, 0.2, 0.4]`
-* if temp > 0: `best_of = 5`
-* `condition_on_previous_text = False`
+* `mlx-whisper` with `mlx-community/whisper-large-v3-mlx`
 
 Process:
 
-* For each segment not yet done:
+* For each segment:
 
-  1. Cut audio slice from `audio.wav` using start/end ms.
-  2. Run ASR.
-  3. Collect:
-
-     * text
-     * timestamps (segment-level is enough)
-     * confidence diagnostics (if available):
-
-       * no_speech_prob
-       * avg_logprob
-       * compression_ratio
-  4. Append record to `work_dir/asr.jsonl` immediately.
+  1. Cut an audio slice from `audio.wav` using start/end ms.
+  2. Run ASR for that slice with `language=ja`.
+  3. Store results in `segments.asr.json` plus `segments.asr.meta.json`.
 
 Resume:
 
-* On start, parse `asr.jsonl` to skip completed seg_id.
+* If `segments.asr.json` exists and the metadata matches the model + language, skip ASR.
 
 ---
 
-### Stage 5 — Aggressive quality gating (drop noise/hallucination)
+### Stage 5 — Quality gating (drop noise/hallucination)
 
 Purpose:
 
 * Keep only real conversation; drop moans/noise/junk.
 
-Hard discard if any:
+Current heuristics (see `GateConfig` in code):
 
-* `no_speech_prob >= 0.80`
-* `avg_logprob < -0.80`
-* `compression_ratio > 1.8`
-* empty/whitespace output
-* fails “looks like Japanese” heuristic (very low Japanese character ratio)
-
-Optional salvage (time doesn’t matter):
-
-* if VAD suggests strong speech but fails gates:
-
-  * rerun at temp=0.2 (or 0.4)
-  * accept only if gates pass
+* minimum text length
+* maximum characters per second
+* minimum Japanese character ratio
+* max repeated character ratio
+* drop if the segment is punctuation-only
 
 Persist:
 
-* each `asr.jsonl` record includes:
-
-  * accepted true/false
-  * discard_reason if false
+* results stored in `segments.gated.json` with metadata in `segments.gated.meta.json`
 
 ---
 
@@ -363,35 +332,25 @@ SRT:
 
 ---
 
-## 7) LLM Translation (JP → Traditional Chinese)
+## 7) Translation (JP → zh-TW)
 
-### Stage 9 — Translate per block (cached)
+### Stage 9 — Translate per block (optional)
 
 Purpose:
 
-* Translate each Japanese subtitle block into Traditional Chinese while preserving timestamps.
+* Translate each Japanese subtitle block into Traditional Chinese (zh-TW) while preserving timestamps.
 
-Cache:
+Backend:
 
-* `work_dir/translate_cache.jsonl` append-only
-* key = hash(normalized JP text)
-* value = zh-TW translation + metadata (model name)
-
-Translation constraints (conceptual prompt):
-
-* Translate Japanese → Traditional Chinese (zh-TW)
-* faithful meaning, concise subtitle style
-* no added content, no explanations
-* keep max 2 lines, avoid overly long lines
-* keep filler translated naturally (can adjust later)
+* Google Cloud Translation API (Basic v2) via `GOOGLE_TRANSLATE_API_KEY`
 
 Resume:
 
-* if hash exists in cache → skip LLM call
+* No cache; translation runs on every `--translate-zh-tw` invocation and overwrites `.zh-TW.srt` (incurs API calls).
 
 ---
 
-### Stage 10 — Write ZH-Hant SRT beside video
+### Stage 10 — Write zh-TW SRT beside video
 
 Output path:
 
@@ -402,18 +361,16 @@ Text = translated blocks.
 
 ---
 
-## 8) Logging + report
+## 8) Logging
 
 `work_dir/run.log`:
 
 * stage start/end
 * counts: VAD segments, ASR done/resumed, accepted vs discarded + reasons
 * subtitle blocks count
-* translation cache hit/miss
+* translation requests when enabled
 
-`work_dir/report.json`:
-
-* summary metrics (accept rate, avg block duration, etc.)
+There is no structured `report.json` output yet.
 
 ---
 
@@ -421,25 +378,17 @@ Text = translated blocks.
 
 ASR:
 
-* faster-whisper `large-v3`
-* beam=10, patience=2.0
-* temps=[0.0,0.2,0.4], best_of=5 when temp>0
-* condition_on_previous_text=false
+* `mlx-community/whisper-large-v3-mlx`
+* language = `ja`
 
-Aggressive discard:
+Gating:
 
-* no_speech_prob ≥ 0.80
-* avg_logprob < -0.80
-* compression_ratio > 1.8
-* non-Japanese junk heuristic
+* see `GateConfig` (min text chars, chars/sec, JP ratio, repeated chars, punctuation-only)
 
 VAD:
 
-* threshold=0.70
-* min_speech=0.60s
-* min_silence=0.40s
-* pad start/end=0.15/0.20s
-* max seg len=20s
+* Silero VAD defaults
+* max segment length = 30s (`max_segment_ms=30000`)
 
 Subtitles:
 
@@ -451,8 +400,8 @@ Subtitles:
 
 Translation:
 
-* LLM per block
-* cached by hash
+* Google Translate API v2 per block
+* no cache; reruns with `--translate-zh-tw` overwrite `.zh-TW.srt` and incur API calls
 * output zh-TW
 
 ---
